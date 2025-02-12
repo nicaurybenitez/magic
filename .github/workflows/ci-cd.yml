@@ -1,0 +1,140 @@
+# .github/workflows/ci-cd.yml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, staging ]
+  pull_request:
+    branches: [ main, staging ]
+
+env:
+  DOCKER_REGISTRY: gcr.io
+  PROJECT_PATH: magic-project
+  TF_VERSION: "1.5.7"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          
+      - name: Install dependencies
+        run: |
+          cd src/api
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      - name: Compile Python code
+        run: |
+          cd src/api
+          python -m compileall .
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          
+      - name: Install test dependencies
+        run: |
+          cd src/api
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+          
+      - name: Run tests with coverage
+        run: |
+          cd src/api
+          pytest tests/ --cov=app --cov-report=term-missing
+
+  build_and_push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging'
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          
+      - name: Configure Docker for GCP
+        run: gcloud auth configure-docker
+        
+      - name: Build and push Docker image
+        run: |
+          cd src/api
+          docker build -t $DOCKER_REGISTRY/${{ secrets.GCP_PROJECT_ID }}/$PROJECT_PATH:${{ github.sha }} .
+          docker push $DOCKER_REGISTRY/${{ secrets.GCP_PROJECT_ID }}/$PROJECT_PATH:${{ github.sha }}
+
+  deploy_staging:
+    needs: build_and_push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/staging'
+    environment: staging
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          
+      - name: Setup GCP Credentials
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          
+      - name: Terraform Init and Apply
+        run: |
+          cd terraform/environments/staging
+          terraform init
+          terraform validate
+          terraform plan -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var="container_image=$DOCKER_REGISTRY/${{ secrets.GCP_PROJECT_ID }}/$PROJECT_PATH:${{ github.sha }}" \
+            -out=plan.tfplan
+          terraform apply -auto-approve plan.tfplan
+
+  deploy_prod:
+    needs: build_and_push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          
+      - name: Setup GCP Credentials
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          
+      - name: Terraform Init and Apply
+        id: deploy
+        run: |
+          cd terraform/environments/prod
+          terraform init
+          terraform validate
+          terraform plan -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var="container_image=$DOCKER_REGISTRY/${{ secrets.GCP_PROJECT_ID }}/$PROJECT_PATH:${{ github.sha }}" \
+            -out=plan.tfplan
+          terraform apply -auto-approve plan.tfplan
