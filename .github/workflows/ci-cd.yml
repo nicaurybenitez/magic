@@ -8,8 +8,6 @@ on:
     branches: [ master, staging ]
 
 env:
-  REGION: us-central1
-  REGISTRY: ${{ env.REGION }}-docker.pkg.dev
   PROJECT_PATH: magic-project
   TF_VERSION: "1.5.7"
 
@@ -79,24 +77,23 @@ jobs:
       - name: 'Set up Cloud SDK'
         uses: 'google-github-actions/setup-gcloud@v1'
         
-      # Create Artifact Registry repository if it doesn't exist
       - name: Create Artifact Registry Repository
         run: |
           gcloud artifacts repositories create ${{ env.PROJECT_PATH }} \
             --repository-format=docker \
-            --location=${{ env.REGION }} \
+            --location=us-central1 \
             --description="Docker repository for ${{ env.PROJECT_PATH }}"
         continue-on-error: true
         
-      - name: Configure Docker auth for Artifact Registry
+      - name: Configure Docker auth
         run: |
-          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+          gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
         
       - name: Build and push Docker image
         run: |
           cd src/api
-          docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }} .
-          docker push ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }}
+          docker build -t us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }} .
+          docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }}
 
   deploy_staging:
     needs: build_and_push
@@ -126,7 +123,7 @@ jobs:
           terraform validate
           terraform plan \
             -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
-            -var="container_image=${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }}" \
+            -var="container_image=us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }}" \
             -out=plan.tfplan
           terraform apply -auto-approve plan.tfplan
 
@@ -161,6 +158,6 @@ jobs:
           terraform validate
           terraform plan \
             -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
-            -var="container_image=${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }}" \
+            -var="container_image=us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }}" \
             -out=plan.tfplan
           terraform apply -auto-approve plan.tfplan
