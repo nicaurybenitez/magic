@@ -3,9 +3,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, staging ]
+    branches: [ master, staging ]
   pull_request:
-    branches: [ main, staging ]
+    branches: [ master, staging ]
 
 env:
   DOCKER_REGISTRY: gcr.io
@@ -49,17 +49,17 @@ jobs:
         run: |
           cd src/api
           pip install -r requirements.txt
-          pip install pytest pytest-cov
+          pip install -r requirements-test.txt
           
       - name: Run tests with coverage
         run: |
           cd src/api
-          pytest tests/ --cov=app --cov-report=term-missing
+          python -m pytest tests/ --cov=. --cov-report=term-missing --cov-fail-under=80
 
   build_and_push:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging'
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/staging'
     steps:
       - uses: actions/checkout@v3
       
@@ -110,7 +110,7 @@ jobs:
   deploy_prod:
     needs: build_and_push
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/master'
     environment:
       name: production
       url: ${{ steps.deploy.outputs.url }}
