@@ -1,3 +1,4 @@
+# .github/workflows/destroy.yml
 name: Destroy Infrastructure
 
 on:
