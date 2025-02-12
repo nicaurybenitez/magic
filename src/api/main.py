@@ -1,4 +1,4 @@
-# main.py
+# src/api/main.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -7,7 +7,7 @@ import os
 
 app = FastAPI(title="Magic API", description="API for handling customer feedback")
 
-# Pydantic model for feedback data validation
+# Pydantic models
 class FeedbackInput(BaseModel):
     customer_id: str
     message: str
@@ -23,7 +23,6 @@ class FeedbackResponse(BaseModel):
     status: str = "received"
 
 # In-memory storage for demo purposes
-# In production, this would be replaced with a database
 feedback_store = {}
 
 @app.get("/")
@@ -52,12 +51,6 @@ async def create_feedback(feedback: FeedbackInput):
     feedback_store[feedback_id] = feedback_response
     
     return feedback_response
-
-@app.get("/feedback/{feedback_id}")
-async def get_feedback(feedback_id: str):
-    if feedback_id not in feedback_store:
-        raise HTTPException(status_code=404, detail="Feedback not found")
-    return feedback_store[feedback_id]
 
 @app.get("/health")
 async def health_check():
