@@ -4,7 +4,11 @@ resource "google_compute_network" "vpc_network" {
   auto_create_subnetworks = false
 
   lifecycle {
-    create_before_destroy = true
+    prevent_destroy = true  # Previene la eliminación accidental
+    ignore_changes = [
+      description,
+      routing_mode,
+    ]
   }
 }
 
@@ -15,7 +19,7 @@ resource "google_compute_subnetwork" "subnet" {
   network       = google_compute_network.vpc_network.id
 
   lifecycle {
-    create_before_destroy = true
+    prevent_destroy = true
   }
 }
 
