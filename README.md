@@ -44,6 +44,7 @@ curl http://localhost:8080/health
 curl -X POST http://localhost:8080/feedback \
 -H "Content-Type: application/json" \
 -d '{"customer_id": "12345", "message": "Great service!", "rating": 5}'
+Todo other curl example 
 ```
 
 ## Project Structure
