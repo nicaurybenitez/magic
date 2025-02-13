@@ -93,7 +93,7 @@ jobs:
           cd src/api
           docker build -t us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }} .
           docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }}
-          cd ../web
+          cd src/web
           docker build -t us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }} .
           docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }}
 
