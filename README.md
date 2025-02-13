@@ -13,7 +13,7 @@
 ```
 
 ## Overview
-Magic Project is a modern customer feedback system built with FastAPI and deployed on Google Cloud Run. The project implements a complete CI/CD pipeline using GitLab and Github Actions CI/CD and infrastructure as code using Terraform.
+Magic Project is a modern customer feedback system built with FastAPI and deployed on Google Cloud Run. The project implements a complete CI/CD pipeline using GitLab and Github Actions CI/CD and infrastructure as code using Terraform., future release the web frontend
 
 ## Quick Start
 
