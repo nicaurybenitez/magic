@@ -1,6 +1,15 @@
+# modules/networking/main.tf
 resource "google_compute_network" "vpc_network" {
   name                    = "magic-vpc-${var.environment}"
   auto_create_subnetworks = false
+
+  lifecycle {
+    prevent_destroy = true  # Previene la eliminación accidental
+    ignore_changes = [
+      description,
+      routing_mode,
+    ]
+  }
 }
 
 resource "google_compute_subnetwork" "subnet" {
@@ -8,6 +17,10 @@ resource "google_compute_subnetwork" "subnet" {
   ip_cidr_range = var.subnet_cidr
   region        = var.region
   network       = google_compute_network.vpc_network.id
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "google_compute_firewall" "allow_http" {
@@ -21,4 +34,8 @@ resource "google_compute_firewall" "allow_http" {
 
   source_ranges = ["0.0.0.0/0"]
   target_tags   = ["http-server"]
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }

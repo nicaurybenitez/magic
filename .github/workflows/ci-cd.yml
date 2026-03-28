@@ -1,14 +1,12 @@
-# .github/workflows/ci-cd.yml
 name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, staging ]
+    branches: [ master, staging ]
   pull_request:
-    branches: [ main, staging ]
+    branches: [ master, staging ]
 
 env:
-  DOCKER_REGISTRY: gcr.io
   PROJECT_PATH: magic-project
   TF_VERSION: "1.5.7"
 
@@ -25,14 +23,20 @@ jobs:
           
       - name: Install dependencies
         run: |
-          cd src/api
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r src/api/requirements.txt
+          pip install pytest pytest-cov httpx
+          
+      - name: Debug directory structure
+        run: |
+          echo "Current directory:"
+          pwd
+          echo "Directory contents:"
+          ls -R
           
       - name: Compile Python code
         run: |
-          cd src/api
-          python -m compileall .
+          python -m compileall src/api
 
   test:
     needs: build
@@ -47,36 +51,51 @@ jobs:
           
       - name: Install test dependencies
         run: |
-          cd src/api
-          pip install -r requirements.txt
-          pip install pytest pytest-cov
+          python -m pip install --upgrade pip
+          pip install -r src/api/requirements.txt
+          pip install pytest pytest-cov httpx
           
       - name: Run tests with coverage
         run: |
-          cd src/api
-          pytest tests/ --cov=app --cov-report=term-missing
+          export PYTHONPATH=$PYTHONPATH:$(pwd)/src/api
+          python -m pytest tests/api/ --cov=src/api --cov-report=term-missing
 
   build_and_push:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging'
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/staging'
     steps:
       - uses: actions/checkout@v3
       
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
         with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
           
-      - name: Configure Docker for GCP
-        run: gcloud auth configure-docker
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
+        
+      - name: Create Artifact Registry Repository
+        run: |
+          gcloud artifacts repositories create ${{ env.PROJECT_PATH }} \
+            --repository-format=docker \
+            --location=us-central1 \
+            --description="Docker repository for ${{ env.PROJECT_PATH }}"
+        continue-on-error: true
+        
+      - name: Configure Docker auth
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
         
       - name: Build and push Docker image
         run: |
           cd src/api
-          docker build -t $DOCKER_REGISTRY/${{ secrets.GCP_PROJECT_ID }}/$PROJECT_PATH:${{ github.sha }} .
-          docker push $DOCKER_REGISTRY/${{ secrets.GCP_PROJECT_ID }}/$PROJECT_PATH:${{ github.sha }}
+          docker build -t us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }} .
+          docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }}
+          cd src/web
+          docker build -t us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }} .
+          docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }}
 
   deploy_staging:
     needs: build_and_push
@@ -86,55 +105,65 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+      - name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
         with:
-          terraform_version: ${{ env.TF_VERSION }}
-          
-      - name: Setup GCP Credentials
-        uses: google-github-actions/setup-gcloud@v1
-        with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-          service_account_key: ${{ secrets.GCP_SA_KEY }}
-          
-      - name: Terraform Init and Apply
-        run: |
-          cd terraform/environments/staging
-          terraform init
-          terraform validate
-          terraform plan -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
-            -var="container_image=$DOCKER_REGISTRY/${{ secrets.GCP_PROJECT_ID }}/$PROJECT_PATH:${{ github.sha }}" \
-            -out=plan.tfplan
-          terraform apply -auto-approve plan.tfplan
-
-  deploy_prod:
-    needs: build_and_push
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    environment:
-      name: production
-      url: ${{ steps.deploy.outputs.url }}
-    steps:
-      - uses: actions/checkout@v3
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
       
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: ${{ env.TF_VERSION }}
           
-      - name: Setup GCP Credentials
-        uses: google-github-actions/setup-gcloud@v1
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
+          
+      - name: Terraform Init and Apply
+        run: |
+          cd terraform/environments/staging
+          terraform init \
+            -backend-config="bucket=magic-project-ezzy-terraform-state" \
+            -backend-config="prefix=terraform/state/staging"
+          terraform validate
+          terraform plan \
+            -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var="container_image=us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }}" \
+            -out=plan.tfplan
+          terraform apply -auto-approve plan.tfplan
+
+  deploy_prod:
+    needs: build_and_push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
         with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
           
       - name: Terraform Init and Apply
         id: deploy
         run: |
           cd terraform/environments/prod
-          terraform init
+          terraform init \
+            -backend-config="bucket=magic-project-ezzy-terraform-state" \
+            -backend-config="prefix=terraform/state/prod"
           terraform validate
-          terraform plan -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
-            -var="container_image=$DOCKER_REGISTRY/${{ secrets.GCP_PROJECT_ID }}/$PROJECT_PATH:${{ github.sha }}" \
+          terraform plan \
+            -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var="container_image=us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.PROJECT_PATH }}/${{ env.PROJECT_PATH }}:${{ github.sha }}" \
             -out=plan.tfplan
           terraform apply -auto-approve plan.tfplan

@@ -1,6 +1,5 @@
-# modules/cloud_run/main.tf
-resource "google_cloud_run_service" "service" {
-  name     = "magic-service-${var.environment}"
+resource "google_cloud_run_service" "web" {
+  name     = "magic-web-${var.environment}"
   location = var.region
 
   template {
@@ -8,7 +7,7 @@ resource "google_cloud_run_service" "service" {
       containers {
         image = var.container_image
         ports {
-          container_port = 8080
+          container_port = 80
         }
         resources {
           limits = {
@@ -20,20 +19,15 @@ resource "google_cloud_run_service" "service" {
     }
   }
 
-  lifecycle {
-    create_before_destroy = true
-  }
-
   traffic {
     percent         = 100
     latest_revision = true
   }
 }
 
-# IAM policy for Cloud Run service
 resource "google_cloud_run_service_iam_member" "public_access" {
-  service  = google_cloud_run_service.service.name
-  location = google_cloud_run_service.service.location
+  service  = google_cloud_run_service.web.name
+  location = google_cloud_run_service.web.location
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
